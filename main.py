@@ -54,11 +54,10 @@ def authenticate_manual():
     try:
         if st.session_state.flow is None:
             flow = InstalledAppFlow.from_client_secrets_file(
-              'credentials.json',
-               SCOPES,
-              redirect_uri='https://mbz-email-assistant.streamlit.app'
-            ) 
-
+                'credentials.json',
+                SCOPES,
+                redirect_uri='https://mbz-email-assistant.streamlit.app'
+            )
             auth_url, _ = flow.authorization_url(prompt='consent')
             st.session_state.flow = flow
             st.session_state.auth_url = auth_url
@@ -74,7 +73,7 @@ def authenticate_manual():
             st.session_state.creds = creds
             st.session_state.service = build_service(creds)
             st.success("✅ Gmail connected successfully!")
-            st.experimental_rerun()
+            st.rerun()
     except Exception as e:
         st.error(f"Authentication failed: {e}")
 
@@ -150,7 +149,7 @@ elif creds and creds.expired and creds.refresh_token:
 if st.session_state.creds is None:
     if st.button("🔗 Connect Gmail"):
         st.session_state.auth_started = True
-        st.experimental_rerun()
+        st.rerun()
 
 if st.session_state.auth_started:
     authenticate_manual()
