@@ -32,11 +32,11 @@ for key in ['creds', 'service', 'auth_url', 'flow', 'auth_started']:
 
 # --- Gemini LLM setup ---
 llm = ChatGoogleGenerativeAI(
-    model="gemini-2.0-flash-exp",
+    model="gemini-1.5-flash",  # or gemini-1.5-pro if you want more advanced replies
     api_key=os.getenv("GEMINI_API_KEY")
 )
 
-# --- Retry decorator with exponential backoff ---
+# --- Retry decorator ---
 def retry_with_exponential_backoff(max_retries=5, base_delay=15, max_delay=60):
     def decorator(func):
         def wrapper(*args, **kwargs):
@@ -55,9 +55,8 @@ def retry_with_exponential_backoff(max_retries=5, base_delay=15, max_delay=60):
         return wrapper
     return decorator
 
-# --- Helper Functions with retry ---
-
-@retry_with_exponential_backoff(max_retries=5, base_delay=15)
+# --- Gmail API helpers ---
+@retry_with_exponential_backoff()
 def get_unread_emails(service):
     results = service.users().messages().list(userId='me', labelIds=['UNREAD'], maxResults=10).execute()
     messages = results.get('messages', [])
@@ -72,31 +71,24 @@ def get_unread_emails(service):
         emails.append({'id': message['id'], 'thread_id': thread_id, 'subject': subject, 'sender': sender, 'snippet': snippet})
     return emails
 
-@retry_with_exponential_backoff(max_retries=3, base_delay=10)
-def summarize_email(snippet: str) -> str:
-    if not snippet or not snippet.strip():
+@retry_with_exponential_backoff()
+def summarize_email(snippet):
+    if not snippet.strip():
         return "(No content to summarize)"
     prompt = f"Summarize this email snippet in 2 sentences:\n\n{snippet}"
     response = llm.invoke(prompt)
-    # response.text is expected; if not, fallback to str(response)
-    text = getattr(response, 'text', None)
-    if not text:
-        text = str(response)
-    return text.strip()
+    return getattr(response, 'text', str(response)).strip()
 
-@retry_with_exponential_backoff(max_retries=3, base_delay=10)
-def generate_reply(snippet: str, instruction: str) -> str:
-    if not snippet or not snippet.strip():
+@retry_with_exponential_backoff()
+def generate_reply(snippet, instruction):
+    if not snippet.strip():
         return "No email content to reply to."
     prompt = f"{instruction}\n\nEmail snippet:\n{snippet}\n\nWrite a professional reply:"
     response = llm.invoke(prompt)
-    text = getattr(response, 'text', None)
-    if not text:
-        text = str(response)
-    return text.strip()
+    return getattr(response, 'text', str(response)).strip()
 
-@retry_with_exponential_backoff(max_retries=5, base_delay=15)
-def get_or_create_label(service, label_name: str) -> str:
+@retry_with_exponential_backoff()
+def get_or_create_label(service, label_name):
     labels = service.users().labels().list(userId='me').execute().get('labels', [])
     for label in labels:
         if label['name'].lower() == label_name.lower():
@@ -106,17 +98,13 @@ def get_or_create_label(service, label_name: str) -> str:
         'labelListVisibility': 'labelShow',
         'messageListVisibility': 'show'
     }
-    created_label = service.users().labels().create(userId='me', body=new_label).execute()
-    return created_label['id']
+    return service.users().labels().create(userId='me', body=new_label).execute()['id']
 
-@retry_with_exponential_backoff(max_retries=5, base_delay=15)
+@retry_with_exponential_backoff()
 def send_email(service, to, subject, body, thread_id=None):
     message = MIMEText(body)
     message['to'] = to
-    if subject.lower().startswith("re:"):
-        message['subject'] = subject
-    else:
-        message['subject'] = f"Re: {subject}"
+    message['subject'] = subject if subject.lower().startswith("re:") else f"Re: {subject}"
     raw = base64.urlsafe_b64encode(message.as_bytes()).decode()
 
     msg_body = {'raw': raw}
@@ -128,19 +116,16 @@ def send_email(service, to, subject, body, thread_id=None):
     if thread_id:
         # Mark thread as read and add "Replied" label
         service.users().threads().modify(
-            userId='me',
-            id=thread_id,
+            userId='me', id=thread_id,
             body={'removeLabelIds': ['UNREAD']}
         ).execute()
         label_id = get_or_create_label(service, "Replied")
         service.users().threads().modify(
-            userId='me',
-            id=thread_id,
+            userId='me', id=thread_id,
             body={'addLabelIds': [label_id]}
         ).execute()
 
-# --- Credentials handling ---
-
+# --- Auth helpers ---
 def save_creds(creds):
     with open(TOKEN_PICKLE, 'wb') as token_file:
         pickle.dump(creds, token_file)
@@ -163,7 +148,7 @@ def authenticate_manual():
             flow = InstalledAppFlow.from_client_secrets_file(
                 CREDENTIALS_FILE,
                 SCOPES,
-                redirect_uri='urn:ietf:wg:oauth:2.0:oob'  # for Streamlit local testing
+                redirect_uri='urn:ietf:wg:oauth:2.0:oob'
             )
             auth_url, _ = flow.authorization_url(prompt='consent')
             st.session_state.flow = flow
@@ -184,8 +169,7 @@ def authenticate_manual():
     except Exception as e:
         st.error(f"Authentication failed: {e}")
 
-# --- Load or Refresh Credentials ---
-
+# --- Gmail Connection ---
 creds = load_creds()
 if creds_valid(creds):
     st.session_state.creds = creds
@@ -196,7 +180,7 @@ elif creds and creds.expired and creds.refresh_token:
     st.session_state.creds = creds
     st.session_state.service = build_service(creds)
 
-# --- Gmail Connection UI ---
+# --- Auth UI ---
 if st.session_state.creds is None:
     if st.button("🔗 Connect Gmail"):
         st.session_state.auth_started = True
@@ -205,8 +189,7 @@ if st.session_state.creds is None:
 if st.session_state.auth_started:
     authenticate_manual()
 
-# --- Main App UI ---
-
+# --- Main UI ---
 if st.session_state.creds:
     service = st.session_state.service
     try:
@@ -228,19 +211,18 @@ if st.session_state.creds:
                 try:
                     st.session_state[summary_key] = summarize_email(email['snippet'])
                 except Exception as e:
-                    st.session_state[summary_key] = f"Error summarizing email: {e}"
+                    st.session_state[summary_key] = f"Error: {e}"
             st.markdown(f"**Summary:** {st.session_state[summary_key]}")
 
-            user_details = st.text_input(f"Your name or instruction for Email #{i+1}", key=f"detail_{email['id']}")
+            user_details = st.text_input(f"Your instruction for Email #{i+1}", key=f"detail_{email['id']}")
             instruction = st.text_area(f"Reply instructions for Email #{i+1}", value="Write a polite and relevant reply.", key=f"instruction_{email['id']}")
 
             reply_key = f"reply_{email['id']}"
-            if reply_key not in st.session_state or st.session_state[reply_key] == "Error generating reply.":
+            if reply_key not in st.session_state:
                 try:
-                    prompt_text = f"{instruction}\n\nDetails: {user_details}"
-                    st.session_state[reply_key] = generate_reply(email['snippet'], prompt_text)
+                    st.session_state[reply_key] = generate_reply(email['snippet'], f"{instruction}\n\nDetails: {user_details}")
                 except Exception as e:
-                    st.session_state[reply_key] = f"Error generating reply: {e}"
+                    st.session_state[reply_key] = f"Error: {e}"
 
             reply_box = st.text_area("Generated reply:", value=st.session_state[reply_key], key=f"replybox_{email['id']}")
 
@@ -248,8 +230,7 @@ if st.session_state.creds:
             with col1:
                 if st.button(f"Regenerate Reply #{i+1}", key=f"regen_{email['id']}"):
                     try:
-                        prompt_text = f"{instruction}\n\nDetails: {user_details}"
-                        st.session_state[reply_key] = generate_reply(email['snippet'], prompt_text)
+                        st.session_state[reply_key] = generate_reply(email['snippet'], f"{instruction}\n\nDetails: {user_details}")
                         st.experimental_rerun()
                     except Exception as e:
                         st.error(f"Error regenerating reply: {e}")
@@ -258,7 +239,6 @@ if st.session_state.creds:
                     try:
                         send_email(service, email['sender'], email['subject'], reply_box, thread_id=email['thread_id'])
                         st.success(f"✅ Reply sent to {email['sender']}")
-                        # Refresh page to update
                         st.experimental_rerun()
                     except Exception as e:
                         st.error(f"Failed to send email: {e}")
