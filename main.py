@@ -75,7 +75,7 @@ def authenticate_manual():
             st.session_state.creds = creds
             st.session_state.service = build_service(creds)
             st.success("✅ Gmail connected successfully!")
-            st.experimental_rerun()
+            st.rerun()
     except Exception as e:
         st.error(f"Authentication failed: {e}")
 
@@ -158,7 +158,7 @@ elif creds and creds.expired and creds.refresh_token:
 if st.session_state.creds is None:
     if st.button("🔗 Connect Gmail"):
         st.session_state.auth_started = True
-        st.experimental_rerun()
+        st.rerun()
 
 if st.session_state.auth_started:
     authenticate_manual()
@@ -197,11 +197,11 @@ if st.session_state.creds:
                     send_email(service, to_email, email['subject'], reply_box, email['thread_id'])
                     st.success("Reply sent!")
                     # Remove email from UI by refreshing page
-                    st.experimental_rerun()
+                    st.rerun()
             with col2:
                 if st.button("🗑️ Skip / Mark Read", key=f"skip_{email['id']}"):
                     service.users().messages().modify(userId='me', id=email['id'], body={'removeLabelIds': ['UNREAD']}).execute()
                     st.success("Email marked as read.")
-                    st.experimental_rerun()
+                    st.rerun()
     else:
         st.info("No unread emails found. Inbox is clear! 🎉")
