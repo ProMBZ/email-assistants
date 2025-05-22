@@ -28,7 +28,7 @@ for key in ['creds', 'service', 'auth_url', 'flow', 'auth_started']:
 
 # --- Gemini LLM setup ---
 llm = ChatGoogleGenerativeAI(
-    model="gemini-2.0-flash",
+    model="gemini-2.0-flash-exp",
     api_key=os.getenv("GEMINI_API_KEY")
 )
 
