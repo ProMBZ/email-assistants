@@ -10,7 +10,7 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 
 load_dotenv()
 
-st.set_page_config(page_title=" AI Email Assistant", page_icon="📬")
+st.set_page_config(page_title="AI Email Assistant", page_icon="📬")
 st.title("📬 AI Email Assistant")
 st.write("Summarize unread emails, draft smart replies, and send them instantly with Gemini AI.")
 
@@ -23,8 +23,6 @@ llm = ChatGoogleGenerativeAI(
 
 SCOPES = ['https://www.googleapis.com/auth/gmail.modify']
 CLIENT_SECRETS_FILE = "credentials.json"
-
-# Make sure this matches your Google Cloud Console OAuth 2.0 Client redirect URI EXACTLY
 REDIRECT_URI = "https://mbz-email-assistant.streamlit.app/oauth2callback"
 
 def get_gmail_service():
@@ -36,13 +34,12 @@ def get_gmail_service():
     
     query_params = st.experimental_get_query_params()
     
-    if "code" in query_params and "creds" not in st.session_state:
+    if "code" in query_params:
         code = query_params["code"][0]
         flow.fetch_token(code=code)
         st.session_state.creds = flow.credentials
-        # Clear the URL params so code is not reused on refresh
-        st.experimental_set_query_params()
-    
+        st.experimental_set_query_params()  # Clear the URL params
+
     if "creds" in st.session_state:
         creds = st.session_state.creds
     else:
@@ -54,8 +51,7 @@ def get_gmail_service():
         st.markdown(f"🔐 [Click here to authorize Gmail access]({auth_url})")
         st.stop()
     
-    service = build('gmail', 'v1', credentials=creds)
-    return service
+    return build('gmail', 'v1', credentials=creds)
 
 def get_unread_emails(service):
     result = service.users().messages().list(userId='me', labelIds=['INBOX'], q='is:unread', maxResults=5).execute()
@@ -143,7 +139,7 @@ try:
         st.session_state['last_checked_count'] = current_count
 
 except Exception as e:
-    st.error(f"❌ Authentication or Gmail error: {e}")
+    st.error(f"❌ Authentication or Gmail error: {str(e)}. Please check your credentials and try again.")
 
 emails = st.session_state.get('emails', [])
 if not emails:
