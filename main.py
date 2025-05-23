@@ -34,7 +34,7 @@ def get_gmail_service():
         redirect_uri=REDIRECT_URI
     )
 
-    query_params = st.experimental_set_query_params()
+    query_params = st.query_params
 
     # Handle OAuth redirect: exchange code for credentials only once
     if "code" in query_params and "creds" not in st.session_state:
@@ -42,7 +42,7 @@ def get_gmail_service():
         flow.fetch_token(code=code)
         st.session_state.creds = flow.credentials
         # ⚡ Clear URL params to prevent reuse of auth code (fixes invalid_grant error)
-        st.experimental_set_query_params()
+        st.query_params
 
     if "creds" in st.session_state:
         creds = st.session_state.creds
