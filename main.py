@@ -5,18 +5,18 @@ from dotenv import load_dotenv
 from google_auth_oauthlib.flow import Flow
 from googleapiclient.discovery import build
 from google.auth.transport.requests import Request
+from google.oauth2.credentials import Credentials
 from email.mime.text import MIMEText
 from streamlit_autorefresh import st_autorefresh
 from langchain_google_genai import ChatGoogleGenerativeAI
-import pickle
 
 load_dotenv()
 
-st.set_page_config(page_title=" AI Email Assistant", page_icon="📬")
+st.set_page_config(page_title="AI Email Assistant", page_icon="📬")
 st.title("📬 AI Email Assistant")
 st.write("Summarize unread emails, draft smart replies, and send them instantly with Gemini AI.")
 
-st_autorefresh(interval=300000, key="email_checker")
+st_autorefresh(interval=300000, key="email_checker")  # auto refresh every 5 mins
 
 llm = ChatGoogleGenerativeAI(
     model="gemini-2.0-flash-exp",
@@ -25,40 +25,40 @@ llm = ChatGoogleGenerativeAI(
 
 SCOPES = ['https://www.googleapis.com/auth/gmail.modify']
 CLIENT_SECRETS_FILE = "credentials.json"
-REDIRECT_URI = "https://mbz-email-assistant.streamlit.app/oauth2callback"
-
-def save_creds_to_session(creds):
-    # Serialize credentials to bytes and store in session state
-    st.session_state.creds = creds
-
-def load_creds_from_session():
-    # Load credentials from session state
-    return st.session_state.get("creds", None)
+REDIRECT_URI = "https://mbz-email-assistant.streamlit.app/oauth2callback"  # YOUR redirect URI EXACTLY!
 
 def get_gmail_service():
-    creds = load_creds_from_session()
+    # Check if creds exist in session_state
+    creds = st.session_state.get('creds', None)
 
     if creds and creds.expired and creds.refresh_token:
-        # Refresh the access token automatically without user interaction
-        creds.refresh(Request())
-        save_creds_to_session(creds)
+        try:
+            creds.refresh(Request())
+            st.session_state.creds = creds  # update creds
+        except Exception as e:
+            st.warning(f"Token refresh failed, need re-auth: {e}")
+            creds = None
 
-    if not creds or not creds.valid:
+    if not creds:
         flow = Flow.from_client_secrets_file(
             CLIENT_SECRETS_FILE,
             scopes=SCOPES,
             redirect_uri=REDIRECT_URI
         )
-        
+
         query_params = st.query_params
-        
+
         if "code" in query_params:
             code = query_params["code"][0]
-            flow.fetch_token(code=code)
-            creds = flow.credentials
-            save_creds_to_session(creds)
-            # Clear URL query params so user doesn't reuse same code on refresh
-            st.experimental_set_query_params()
+            try:
+                flow.fetch_token(code=code)
+                creds = flow.credentials
+                st.session_state.creds = creds
+                # CLEAR URL PARAMS to avoid reuse of code on reload
+                st.experimental_set_query_params()
+            except Exception as e:
+                st.error(f"❌ Authentication error: {e}")
+                st.stop()
         else:
             auth_url, _ = flow.authorization_url(
                 prompt="consent",
@@ -68,32 +68,39 @@ def get_gmail_service():
             st.markdown(f"🔐 [Click here to authorize Gmail access]({auth_url})")
             st.stop()
 
-    service = build('gmail', 'v1', credentials=creds)
+    service = build('gmail', 'v1', credentials=st.session_state.creds)
     return service
 
 def get_unread_emails(service):
-    result = service.users().messages().list(userId='me', labelIds=['INBOX'], q='is:unread', maxResults=5).execute()
-    messages = result.get('messages', [])[::-1]
+    try:
+        result = service.users().messages().list(userId='me', labelIds=['INBOX'], q='is:unread', maxResults=5).execute()
+        messages = result.get('messages', [])[::-1]
+    except Exception as e:
+        st.error(f"Error fetching emails: {e}")
+        return []
+
     emails = []
-
     for msg in messages:
-        data = service.users().messages().get(userId='me', id=msg['id']).execute()
-        headers = data['payload']['headers']
-        subject = next((h['value'] for h in headers if h['name'] == 'Subject'), 'No Subject')
-        sender = next((h['value'] for h in headers if h['name'] == 'From'), 'Unknown Sender')
-        snippet = data.get('snippet', '')
-        thread_id = data.get('threadId')
+        try:
+            data = service.users().messages().get(userId='me', id=msg['id']).execute()
+            headers = data['payload']['headers']
+            subject = next((h['value'] for h in headers if h['name'] == 'Subject'), 'No Subject')
+            sender = next((h['value'] for h in headers if h['name'] == 'From'), 'Unknown Sender')
+            snippet = data.get('snippet', '')
+            thread_id = data.get('threadId')
 
-        # Mark email as read
-        service.users().messages().modify(userId='me', id=msg['id'], body={'removeLabelIds': ['UNREAD']}).execute()
+            # Mark email as read
+            service.users().messages().modify(userId='me', id=msg['id'], body={'removeLabelIds': ['UNREAD']}).execute()
 
-        emails.append({
-            'id': msg['id'],
-            'thread_id': thread_id,
-            'subject': subject,
-            'sender': sender,
-            'snippet': snippet
-        })
+            emails.append({
+                'id': msg['id'],
+                'thread_id': thread_id,
+                'subject': subject,
+                'sender': sender,
+                'snippet': snippet
+            })
+        except Exception as e:
+            st.warning(f"Failed to process message {msg['id']}: {e}")
 
     return emails
 
@@ -139,7 +146,7 @@ def send_email(service, to, subject, message_text, thread_id=None):
     service.users().messages().modify(userId='me', id=sent_message['id'], body={'addLabelIds': [replied_label_id]}).execute()
     return sent_message
 
-# Initialize session state vars if needed
+# Initialize session state variables
 if 'last_checked_count' not in st.session_state:
     st.session_state['last_checked_count'] = 0
 
