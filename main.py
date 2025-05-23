@@ -26,7 +26,7 @@ SCOPES = ['https://www.googleapis.com/auth/gmail.modify']
 CLIENT_SECRETS_FILE = "credentials.json"
 
 # Set this to the exact redirect URI you configured in Google Cloud Console
-REDIRECT_URI = "https://mbz-email-assistant.streamlit.app/oauth2callback"
+REDIRECT_URI = "https://mbz-email-assistant.streamlit.app"
 
 @st.cache_resource(show_spinner=False)
 def get_gmail_service():
