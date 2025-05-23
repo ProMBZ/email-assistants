@@ -32,7 +32,7 @@ def get_gmail_service():
         redirect_uri=REDIRECT_URI
     )
     
-    query_params = st.experimental_get_query_params()
+    query_params = st.query_params
     
     if "code" in query_params:
         code = query_params["code"][0]
