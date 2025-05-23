@@ -10,7 +10,7 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 
 load_dotenv()
 
-st.set_page_config(page_title="AI Email Assistant", page_icon="📬")
+st.set_page_config(page_title=" AI Email Assistant", page_icon="📬")
 st.title("📬 AI Email Assistant")
 st.write("Summarize unread emails, draft smart replies, and send them instantly with Gemini AI.")
 
@@ -23,6 +23,8 @@ llm = ChatGoogleGenerativeAI(
 
 SCOPES = ['https://www.googleapis.com/auth/gmail.modify']
 CLIENT_SECRETS_FILE = "credentials.json"
+
+# IMPORTANT: Update this with your exact Google Cloud Console OAuth redirect URI
 REDIRECT_URI = "https://mbz-email-assistant.streamlit.app/oauth2callback"
 
 def get_gmail_service():
@@ -31,18 +33,21 @@ def get_gmail_service():
         scopes=SCOPES,
         redirect_uri=REDIRECT_URI
     )
-    
-    query_params = st.query_params
-    
-    if "code" in query_params:
+
+    query_params = st.experimental_get_query_params()
+
+    # Handle OAuth redirect: exchange code for credentials only once
+    if "code" in query_params and "creds" not in st.session_state:
         code = query_params["code"][0]
         flow.fetch_token(code=code)
         st.session_state.creds = flow.credentials
-        st.experimental_set_query_params()  # Clear the URL params
+        # ⚡ Clear URL params to prevent reuse of auth code (fixes invalid_grant error)
+        st.experimental_set_query_params()
 
     if "creds" in st.session_state:
         creds = st.session_state.creds
     else:
+        # Show auth link if no creds yet
         auth_url, _ = flow.authorization_url(
             prompt="consent",
             access_type="offline",
@@ -50,8 +55,9 @@ def get_gmail_service():
         )
         st.markdown(f"🔐 [Click here to authorize Gmail access]({auth_url})")
         st.stop()
-    
-    return build('gmail', 'v1', credentials=creds)
+
+    service = build('gmail', 'v1', credentials=creds)
+    return service
 
 def get_unread_emails(service):
     result = service.users().messages().list(userId='me', labelIds=['INBOX'], q='is:unread', maxResults=5).execute()
@@ -66,7 +72,7 @@ def get_unread_emails(service):
         snippet = data.get('snippet', '')
         thread_id = data.get('threadId')
 
-        # Mark email as read
+        # Mark email as read right away (optional)
         service.users().messages().modify(userId='me', id=msg['id'], body={'removeLabelIds': ['UNREAD']}).execute()
 
         emails.append({
@@ -121,7 +127,7 @@ def send_email(service, to, subject, message_text, thread_id=None):
     service.users().messages().modify(userId='me', id=sent_message['id'], body={'addLabelIds': [replied_label_id]}).execute()
     return sent_message
 
-# Session state initialization
+# Initialize session state variables
 if 'last_checked_count' not in st.session_state:
     st.session_state['last_checked_count'] = 0
 
@@ -139,7 +145,7 @@ try:
         st.session_state['last_checked_count'] = current_count
 
 except Exception as e:
-    st.error(f"❌ Authentication or Gmail error: {str(e)}. Please check your credentials and try again.")
+    st.error(f"❌ Authentication or Gmail error: {e}")
 
 emails = st.session_state.get('emails', [])
 if not emails:
