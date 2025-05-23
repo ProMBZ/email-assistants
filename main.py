@@ -8,7 +8,6 @@ from email.mime.text import MIMEText
 from streamlit_autorefresh import st_autorefresh
 from langchain_google_genai import ChatGoogleGenerativeAI
 
-# Load env vars (make sure GEMINI_API_KEY is set)
 load_dotenv()
 
 st.set_page_config(page_title="📬 AI Email Assistant", page_icon="📬")
@@ -25,36 +24,38 @@ llm = ChatGoogleGenerativeAI(
 SCOPES = ['https://www.googleapis.com/auth/gmail.modify']
 CLIENT_SECRETS_FILE = "credentials.json"
 
-# Set this to the exact redirect URI you configured in Google Cloud Console
-REDIRECT_URI = "https://mbz-email-assistant.streamlit.app"
+# Make sure this matches your Google Cloud Console OAuth 2.0 Client redirect URI EXACTLY
+REDIRECT_URI = "https://mbz-email-assistant.streamlit.app/oauth2callback"
 
-@st.cache_resource(show_spinner=False)
 def get_gmail_service():
-    # Initialize OAuth flow
     flow = Flow.from_client_secrets_file(
         CLIENT_SECRETS_FILE,
         scopes=SCOPES,
         redirect_uri=REDIRECT_URI
     )
-
-    # Grab 'code' param from URL if it exists
-    query_params = st.query_params
-    if "code" not in query_params:
-        # No auth code yet — generate auth URL and ask user to authenticate
+    
+    query_params = st.experimental_get_query_params()
+    
+    if "code" in query_params and "creds" not in st.session_state:
+        code = query_params["code"][0]
+        flow.fetch_token(code=code)
+        st.session_state.creds = flow.credentials
+        # Clear the URL params so code is not reused on refresh
+        st.experimental_set_query_params()
+    
+    if "creds" in st.session_state:
+        creds = st.session_state.creds
+    else:
         auth_url, _ = flow.authorization_url(
             prompt="consent",
             access_type="offline",
             include_granted_scopes="true"
         )
         st.markdown(f"🔐 [Click here to authorize Gmail access]({auth_url})")
-        st.stop()  # Stop here until user clicks and authorizes
-    else:
-        # We have the auth code from redirect URL — exchange for token
-        code = query_params["code"][0]
-        flow.fetch_token(code=code)
-        creds = flow.credentials
-        service = build('gmail', 'v1', credentials=creds)
-        return service
+        st.stop()
+    
+    service = build('gmail', 'v1', credentials=creds)
+    return service
 
 def get_unread_emails(service):
     result = service.users().messages().list(userId='me', labelIds=['INBOX'], q='is:unread', maxResults=5).execute()
@@ -69,7 +70,9 @@ def get_unread_emails(service):
         snippet = data.get('snippet', '')
         thread_id = data.get('threadId')
 
+        # Mark email as read
         service.users().messages().modify(userId='me', id=msg['id'], body={'removeLabelIds': ['UNREAD']}).execute()
+
         emails.append({
             'id': msg['id'],
             'thread_id': thread_id,
@@ -122,7 +125,7 @@ def send_email(service, to, subject, message_text, thread_id=None):
     service.users().messages().modify(userId='me', id=sent_message['id'], body={'addLabelIds': [replied_label_id]}).execute()
     return sent_message
 
-# Initialize session state for emails
+# Session state initialization
 if 'last_checked_count' not in st.session_state:
     st.session_state['last_checked_count'] = 0
 
