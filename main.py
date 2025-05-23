@@ -25,7 +25,7 @@ llm = ChatGoogleGenerativeAI(
 
 SCOPES = ['https://www.googleapis.com/auth/gmail.modify']
 CLIENT_SECRETS_FILE = "credentials.json"
-REDIRECT_URI = "https://mbz-email-assistant.streamlit.app/oauth2callback"  # YOUR redirect URI EXACTLY!
+REDIRECT_URI = "https://mbz-email-assistant.streamlit.app"  # YOUR redirect URI EXACTLY!
 
 def get_gmail_service():
     # Check if creds exist in session_state
