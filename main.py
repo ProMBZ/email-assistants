@@ -38,7 +38,7 @@ def get_gmail_service():
     )
 
     # Grab 'code' param from URL if it exists
-    query_params = st.experimental_get_query_params()
+    query_params = st.query_params()
     if "code" not in query_params:
         # No auth code yet — generate auth URL and ask user to authenticate
         auth_url, _ = flow.authorization_url(
