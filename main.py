@@ -34,7 +34,7 @@ def get_gmail_service():
         redirect_uri=REDIRECT_URI
     )
 
-    query_params = st.experimental_get_query_params()
+    query_params = st.query_params
 
     # Handle OAuth redirect: exchange code for credentials only once
     if "code" in query_params and "creds" not in st.session_state:
