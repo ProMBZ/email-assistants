@@ -10,7 +10,7 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 
 load_dotenv()
 
-st.set_page_config(page_title="📬 AI Email Assistant", page_icon="📬")
+st.set_page_config(page_title=" AI Email Assistant", page_icon="📬")
 st.title("📬 AI Email Assistant")
 st.write("Summarize unread emails, draft smart replies, and send them instantly with Gemini AI.")
 
